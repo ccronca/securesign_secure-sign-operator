@@ -73,6 +73,8 @@ type RekorStatus struct {
 	RekorSearchUIUrl string                `json:"rekorSearchUIUrl,omitempty"`
 	// The ID of a Trillian tree that stores the log data.
 	TreeID *int64 `json:"treeID,omitempty"`
+	// Number of component restarts.
+	Restarts int `json:"restarts"`
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge

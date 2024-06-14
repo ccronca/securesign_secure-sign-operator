@@ -3,12 +3,13 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"github.com/securesign/operator/internal/controller/constants"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	v13 "github.com/openshift/api/operator/v1"
+	"github.com/securesign/operator/internal/controller/constants"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -44,6 +45,11 @@ func getDefaultKubeConfigFile() (string, error) {
 }
 
 func ContainerMode() (bool, error) {
+	if containerMode := os.Getenv("CONTAINER_MODE"); containerMode != "" {
+		if b, _ := strconv.ParseBool(containerMode); b {
+			return true, nil
+		}
+	}
 	// When kube config is set, container mode is not used
 	if os.Getenv(kubeConfigEnvVar) != "" {
 		return false, nil
