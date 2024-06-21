@@ -42,15 +42,14 @@ var _ = Describe("CTlog controller", func() {
 
 		const (
 			Name      = "test"
-			Namespace = "default"
+			Namespace = "test"
 		)
 
 		ctx := context.Background()
 
 		namespace := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      Name,
-				Namespace: Namespace,
+				Name: Namespace,
 			},
 		}
 

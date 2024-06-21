@@ -21,7 +21,10 @@ import (
 
 	olpredicate "github.com/operator-framework/operator-lib/predicate"
 	"github.com/securesign/operator/internal/controller/annotations"
+	"github.com/securesign/operator/internal/controller/constants"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/securesign/operator/internal/controller/ctlog/actions"
 	actions2 "github.com/securesign/operator/internal/controller/fulcio/actions"
@@ -83,6 +86,9 @@ func (r *CTlogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	target := instance.DeepCopy()
 	acs := []action.Action[rhtasv1alpha1.CTlog]{
+		// register error handler
+		actions.NewHandleErrorAction(),
+
 		actions.NewPendingAction(),
 
 		actions.NewHandleFulcioCertAction(),
@@ -144,7 +150,17 @@ func (r *CTlogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithEventFilter(pause).
-		For(&rhtasv1alpha1.CTlog{}).
+		For(&rhtasv1alpha1.CTlog{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.Funcs{UpdateFunc: func(event event.UpdateEvent) bool {
+			// do not requeue failed object updates
+			instance, ok := event.ObjectNew.(*rhtasv1alpha1.CTlog)
+			if !ok {
+				return false
+			}
+			if c := meta.FindStatusCondition(instance.Status.Conditions, constants.Ready); c != nil {
+				return c.Reason != constants.Failure
+			}
+			return true
+		}}))).
 		Owns(&v1.Deployment{}).
 		Owns(&v12.Service{}).
 		WatchesMetadata(partialSecret, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {

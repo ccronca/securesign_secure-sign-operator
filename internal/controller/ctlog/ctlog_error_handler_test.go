@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rekor
+package ctlog
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 
 	"github.com/securesign/operator/internal/controller/common/utils"
 	"github.com/securesign/operator/internal/controller/common/utils/kubernetes"
+	fulcio "github.com/securesign/operator/internal/controller/fulcio/actions"
 	trillian "github.com/securesign/operator/internal/controller/trillian/actions"
 	appsv1 "k8s.io/api/apps/v1"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,8 +40,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-var _ = Describe("Rekor ErrorHandler", func() {
-	Context("Rekor ErrorHandler test", func() {
+var _ = Describe("CTlog ErrorHandler", func() {
+	Context("CTlog ErrorHandler test", func() {
 
 		const (
 			Name      = "test"
@@ -56,7 +57,7 @@ var _ = Describe("Rekor ErrorHandler", func() {
 		}
 
 		typeNamespaceName := types.NamespacedName{Name: Name, Namespace: Namespace}
-		instance := &v1alpha1.Rekor{}
+		instance := &v1alpha1.CTlog{}
 
 		BeforeEach(func() {
 			// workaround - disable "host" mode in CreateTrillianTree function
@@ -68,8 +69,8 @@ var _ = Describe("Rekor ErrorHandler", func() {
 		})
 
 		AfterEach(func() {
-			By("removing the custom resource for the Kind Rekor")
-			found := &v1alpha1.Rekor{}
+			By("removing the custom resource for the Kind CTlog")
+			found := &v1alpha1.CTlog{}
 			err := k8sClient.Get(ctx, typeNamespaceName, found)
 			Expect(err).To(Not(HaveOccurred()))
 
@@ -84,37 +85,31 @@ var _ = Describe("Rekor ErrorHandler", func() {
 			_ = k8sClient.Delete(ctx, namespace)
 		})
 
-		It("should successfully reconcile a custom resource for Rekor", func() {
-			By("creating the custom resource for the Kind Rekor")
+		It("should successfully reconcile a custom resource for CTlog", func() {
+			By("creating the custom resource for the Kind CTlog")
 			err := k8sClient.Get(ctx, typeNamespaceName, instance)
 			if err != nil && errors.IsNotFound(err) {
 				// Let's mock our custom resource at the same way that we would
 				// apply on the cluster the manifest under config/samples
-				instance := &v1alpha1.Rekor{
+				instance := &v1alpha1.CTlog{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      Name,
 						Namespace: Namespace,
 					},
-					Spec: v1alpha1.RekorSpec{
-						ExternalAccess: v1alpha1.ExternalAccess{
-							Enabled: true,
-							Host:    "rekor.local",
-						},
-						RekorSearchUI: v1alpha1.RekorSearchUI{
-							Enabled: utils.Pointer(true),
-						},
-						BackFillRedis: v1alpha1.BackFillRedis{
-							Enabled:  utils.Pointer(true),
-							Schedule: "0 0 * * *",
-						},
-					},
+					Spec: v1alpha1.CTlogSpec{},
 				}
 				err = k8sClient.Create(ctx, instance)
 				Expect(err).To(Not(HaveOccurred()))
 			}
+
+			Expect(k8sClient.Create(ctx, kubernetes.CreateSecret("test", Namespace,
+				map[string][]byte{"cert": []byte("fakeCert")},
+				map[string]string{fulcio.FulcioCALabel: "cert"},
+			))).To(Succeed())
+
 			Expect(k8sClient.Create(ctx, kubernetes.CreateService(Namespace, trillian.LogserverDeploymentName, trillian.ServerPortName, trillian.ServerPort, constants.LabelsForComponent(trillian.LogServerComponentName, instance.Name)))).To(Succeed())
 
-			found := &v1alpha1.Rekor{}
+			found := &v1alpha1.CTlog{}
 
 			By("Deployment should fail")
 			Eventually(func() string {
@@ -127,32 +122,31 @@ var _ = Describe("Rekor ErrorHandler", func() {
 				return condition.Reason
 			}).Should(Equal(constants.Failure))
 
-			// persist signer name
-			signerName := found.Status.Signer.KeyRef.Name
-			Expect(signerName).To(Not(BeEmpty()))
+			key := found.Status.PrivateKeyRef.Name
+			Expect(key).To(Not(BeEmpty()))
 
 			By("Periodically trying to restart deployment")
 			Eventually(func() string {
-				found := &v1alpha1.Rekor{}
+				found := &v1alpha1.CTlog{}
 				Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				return meta.FindStatusCondition(found.Status.Conditions, constants.Ready).Reason
 			}).Should(Not(Equal(constants.Failure)))
 			Eventually(func() string {
-				found := &v1alpha1.Rekor{}
+				found := &v1alpha1.CTlog{}
 				Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				return meta.FindStatusCondition(found.Status.Conditions, constants.Ready).Reason
 			}).Should(Equal(constants.Failure))
 
-			By("After fixing the problem the Rekor instance is Ready")
+			By("After fixing the problem the CTlog instance is Ready")
 			Eventually(func() error {
 				Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				found.Spec.TreeID = utils.Pointer(int64(1))
 				return k8sClient.Update(ctx, found)
 			}).Should(Succeed())
 
-			By("Waiting until Rekor instance is Initialization")
+			By("Waiting until CTlog instance is Initialization")
 			Eventually(func() string {
-				found := &v1alpha1.Rekor{}
+				found := &v1alpha1.CTlog{}
 				Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				return meta.FindStatusCondition(found.Status.Conditions, constants.Ready).Reason
 			}).Should(Equal(constants.Initialize))
@@ -168,13 +162,13 @@ var _ = Describe("Rekor ErrorHandler", func() {
 			// Workaround to succeed condition for Ready phase
 
 			Eventually(func() bool {
-				found := &v1alpha1.Rekor{}
+				found := &v1alpha1.CTlog{}
 				Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				return meta.IsStatusConditionTrue(found.Status.Conditions, constants.Ready)
 			}).Should(BeTrue())
 
 			By("Pregenerated resources are reused")
-			Expect(signerName).To(Equal(found.Status.Signer.KeyRef.Name))
+			Expect(key).To(Equal(found.Status.PrivateKeyRef.Name))
 		})
 	})
 })
