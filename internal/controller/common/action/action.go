@@ -14,7 +14,7 @@ type Result struct {
 	Err    error
 }
 
-type Action[T interface{}] interface {
+type Action[T interface{client.Object}] interface {
 	InjectClient(client client.Client)
 	InjectRecorder(recorder record.EventRecorder)
 	InjectLogger(logger logr.Logger)
@@ -23,8 +23,14 @@ type Action[T interface{}] interface {
 	Name() string
 
 	// returns true if the action can handle the integration
-	CanHandle(context.Context, *T) bool
+	CanHandle(context.Context, T) bool
 
 	// executes the handling function
-	Handle(context.Context, *T) *Result
+	Handle(context.Context, T) *Result
+}
+
+
+type HandleFailure[T interface{}] interface {
+	CanHandleFailure(context.Context, T) bool
+	HandleFailure(context.Context, T) *Result
 }

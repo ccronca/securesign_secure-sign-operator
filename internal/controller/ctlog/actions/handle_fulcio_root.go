@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewHandleFulcioCertAction() action.Action[v1alpha1.CTlog] {
+func NewHandleFulcioCertAction() action.Action[*v1alpha1.CTlog] {
 	return &handleFulcioCert{}
 }
 
@@ -117,3 +117,13 @@ func (g handleFulcioCert) Handle(ctx context.Context, instance *v1alpha1.CTlog) 
 	)
 	return g.StatusUpdate(ctx, instance)
 }
+
+func (g handleFulcioCert) CanHandleFailure(_ context.Context, instance *v1alpha1.CTlog) bool {
+	return meta.IsStatusConditionFalse(instance.Status.Conditions, CertCondition)
+}
+
+func (g handleFulcioCert) HandleFailure(_ context.Context, instance *v1alpha1.CTlog) *action.Result {
+	instance.Status.RootCertificates = []v1alpha1.SecretKeySelector{}
+	return g.Continue()
+}
+

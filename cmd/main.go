@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"github.com/securesign/operator/internal/controller/reconciler"
 	"os"
 	"strconv"
 
@@ -207,11 +208,16 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Tuf")
 		os.Exit(1)
 	}
-	if err = (&ctlog.CTlogReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("ctlog-controller"),
-	}).SetupWithManager(mgr); err != nil {
+
+	if err = ctlog.SetupWithManager(reconciler.New[*rhtasv1alpha1.CTlog](
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("ctlog-controller"),
+		ctlog.Actions,
+		func() *rhtasv1alpha1.CTlog {
+			return &rhtasv1alpha1.CTlog{}
+		},
+	), mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CTlog")
 		os.Exit(1)
 	}

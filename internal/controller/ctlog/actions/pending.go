@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewPendingAction() action.Action[rhtasv1alpha1.CTlog] {
+func NewPendingAction() action.Action[*rhtasv1alpha1.CTlog] {
 	return &pendingAction{}
 }
 
@@ -26,16 +26,14 @@ func (i pendingAction) Name() string {
 
 func (i pendingAction) CanHandle(_ context.Context, instance *rhtasv1alpha1.CTlog) bool {
 	c := meta.FindStatusCondition(instance.Status.Conditions, constants.Ready)
-	return c == nil || c.Reason == constants.Pending
+	if c == nil {
+		return false
+	}
+	return c.Reason == constants.Pending
 }
 
 func (i pendingAction) Handle(ctx context.Context, instance *rhtasv1alpha1.CTlog) *action.Result {
-	if meta.FindStatusCondition(instance.Status.Conditions, constants.Ready) == nil {
-		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-			Type:   constants.Ready,
-			Status: metav1.ConditionFalse,
-			Reason: constants.Pending,
-		})
+	if meta.FindStatusCondition(instance.Status.Conditions, CertCondition) == nil {
 		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:   CertCondition,
 			Status: metav1.ConditionUnknown,
@@ -58,11 +56,6 @@ func (i pendingAction) Handle(ctx context.Context, instance *rhtasv1alpha1.CTlog
 		return i.Requeue()
 	}
 
-	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:   constants.Ready,
-		Status: metav1.ConditionFalse,
-		Reason: constants.Creating,
-	})
-	return i.StatusUpdate(ctx, instance)
+	return i.Continue()
 
 }

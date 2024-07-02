@@ -26,7 +26,7 @@ const (
 	FulcioCALabel = constants.LabelNamespace + "/fulcio_v1.crt.pem"
 )
 
-func NewHandleCertAction() action.Action[v1alpha1.Fulcio] {
+func NewHandleCertAction() action.Action[*v1alpha1.Fulcio] {
 	return &handleCert{}
 }
 

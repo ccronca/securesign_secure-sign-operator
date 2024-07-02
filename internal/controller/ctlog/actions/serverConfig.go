@@ -21,7 +21,7 @@ const (
 	CTLPubLabel = constants.LabelNamespace + "/ctfe.pub"
 )
 
-func NewServerConfigAction() action.Action[rhtasv1alpha1.CTlog] {
+func NewServerConfigAction() action.Action[*rhtasv1alpha1.CTlog] {
 	return &serverConfig{}
 }
 
@@ -149,4 +149,13 @@ func (i serverConfig) handleRootCertificates(instance *rhtasv1alpha1.CTlog) ([]c
 	}
 
 	return certs, nil
+}
+
+func (i serverConfig) CanHandleFailure(_ context.Context, instance *rhtasv1alpha1.CTlog) bool {
+	return meta.IsStatusConditionFalse(instance.Status.Conditions, ServerCondition)
+}
+
+func (i serverConfig) HandleFailure(_ context.Context, instance *rhtasv1alpha1.CTlog) *action.Result {
+	instance.Status.ServerConfigRef = nil
+	return i.Continue()
 }

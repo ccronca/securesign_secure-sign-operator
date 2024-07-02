@@ -19,6 +19,7 @@ package ctlog
 import (
 	"context"
 	"fmt"
+	"github.com/securesign/operator/internal/controller/reconciler"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -98,11 +99,16 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	err = (&CTlogReconciler{
-		Client:   k8sManager.GetClient(),
-		Scheme:   k8sManager.GetScheme(),
-		Recorder: record.NewFakeRecorder(1000),
-	}).SetupWithManager(k8sManager)
+	r := reconciler.New[*rhtasv1alpha1.CTlog](
+		k8sManager.GetClient(),
+		k8sManager.GetScheme(),
+		record.NewFakeRecorder(1000),
+		Actions,
+		func() *rhtasv1alpha1.CTlog {
+			return &rhtasv1alpha1.CTlog{}
+		},
+	)
+	err = SetupWithManager(r, k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {

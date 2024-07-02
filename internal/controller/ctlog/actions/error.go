@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewHandleErrorAction() action.Action[rhtasv1alpha1.CTlog] {
+func NewHandleErrorAction() action.Action[*rhtasv1alpha1.CTlog] {
 	return &handleErrorAction{}
 }
 
@@ -32,9 +32,8 @@ func (i handleErrorAction) CanHandle(_ context.Context, instance *rhtasv1alpha1.
 }
 
 func (i handleErrorAction) Handle(ctx context.Context, instance *rhtasv1alpha1.CTlog) *action.Result {
-	i.Recorder.Event(instance, v1.EventTypeWarning, constants.Failure, "Restarted by error handler")
 
-	newStatus := rhtasv1alpha1.CTlogStatus{}
+	newStatus := instance.Status.DeepCopy()
 
 	newStatus.Restarts = instance.Status.Restarts + 1
 	if newStatus.Restarts == constants.AllowedRestarts {
@@ -44,26 +43,8 @@ func (i handleErrorAction) Handle(ctx context.Context, instance *rhtasv1alpha1.C
 			Reason:  constants.Failure,
 			Message: "Restart threshold reached",
 		})
-		instance.Status = newStatus
+		instance.Status = *newStatus
 		return i.StatusUpdate(ctx, instance)
-	}
-
-	// - keep the status.treeId if not nil
-	newStatus.TreeID = instance.Status.TreeID
-
-	newStatus.PrivateKeyRef = instance.Status.PrivateKeyRef.DeepCopy()
-
-	newStatus.PublicKeyRef = instance.Status.PublicKeyRef.DeepCopy()
-
-	newStatus.PrivateKeyPasswordRef = instance.Status.PrivateKeyPasswordRef.DeepCopy()
-
-	if meta.IsStatusConditionTrue(instance.Status.Conditions, CertCondition) {
-		copy(newStatus.RootCertificates, instance.Status.RootCertificates)
-	}
-
-	if meta.IsStatusConditionTrue(instance.Status.Conditions, ServerCondition) {
-		instance.Status.ServerConfigRef.DeepCopyInto(newStatus.ServerConfigRef)
-		// do not append server condition - let controller to redeploy
 	}
 
 	meta.SetStatusCondition(&newStatus.Conditions, metav1.Condition{
@@ -72,6 +53,12 @@ func (i handleErrorAction) Handle(ctx context.Context, instance *rhtasv1alpha1.C
 		Reason:  constants.Pending,
 		Message: "Restarted by error handler",
 	})
-	instance.Status = newStatus
+	instance.Status = *newStatus
+
+	i.Recorder.Event(instance, v1.EventTypeWarning, constants.Failure, "Restarted by error handler")
 	return i.StatusUpdate(ctx, instance)
+}
+
+func (i handleErrorAction) HandleFailure(ctx context.Context, _ *rhtasv1alpha1.CTlog) *action.Result {
+	return i.Continue()
 }

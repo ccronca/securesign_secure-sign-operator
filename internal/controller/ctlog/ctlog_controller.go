@@ -18,7 +18,6 @@ package ctlog
 
 import (
 	"context"
-
 	olpredicate "github.com/operator-framework/operator-lib/predicate"
 	"github.com/securesign/operator/internal/controller/annotations"
 	"github.com/securesign/operator/internal/controller/constants"
@@ -31,100 +30,53 @@ import (
 	v12 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/securesign/operator/internal/controller/common/action"
 	v1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	rhtasv1alpha1 "github.com/securesign/operator/api/v1alpha1"
 )
 
-// CTlogReconciler reconciles a CTlog object
-type CTlogReconciler struct {
-	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+
+var Actions = []action.Action[*rhtasv1alpha1.CTlog]{
+	// register error handler
+	actions.NewHandleErrorAction(),
+
+	action.NewToPending[*rhtasv1alpha1.CTlog](),
+
+	actions.NewPendingAction(),
+
+	action.NewToCreate[*rhtasv1alpha1.CTlog](),
+
+	actions.NewHandleFulcioCertAction(),
+	actions.NewHandleKeysAction(),
+	actions.NewCreateTrillianTreeAction(),
+	actions.NewServerConfigAction(),
+
+	actions.NewRBACAction(),
+	actions.NewDeployAction(),
+	actions.NewServiceAction(),
+	actions.NewCreateMonitorAction(),
+
+	action.NewToInitialize[*rhtasv1alpha1.CTlog](),
+
+	actions.NewInitializeAction(),
+
+	action.NewToReady[*rhtasv1alpha1.CTlog](),
 }
 
 //+kubebuilder:rbac:groups=rhtas.redhat.com,resources=ctlogs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=rhtas.redhat.com,resources=ctlogs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=rhtas.redhat.com,resources=ctlogs/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the CTlog object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
-func (r *CTlogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-
-	var instance rhtasv1alpha1.CTlog
-	rlog := log.FromContext(ctx)
-	rlog.V(1).Info("Reconciling CTlog", "request", req)
-
-	if err := r.Client.Get(ctx, req.NamespacedName, &instance); err != nil {
-		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
-			return reconcile.Result{}, nil
-		}
-		// Error reading the object - requeue the request.
-		return reconcile.Result{}, err
-	}
-	target := instance.DeepCopy()
-	acs := []action.Action[rhtasv1alpha1.CTlog]{
-		// register error handler
-		actions.NewHandleErrorAction(),
-
-		actions.NewPendingAction(),
-
-		actions.NewHandleFulcioCertAction(),
-		actions.NewHandleKeysAction(),
-		actions.NewCreateTrillianTreeAction(),
-		actions.NewServerConfigAction(),
-
-		actions.NewRBACAction(),
-		actions.NewDeployAction(),
-		actions.NewServiceAction(),
-		actions.NewCreateMonitorAction(),
-
-		actions.NewToInitializeAction(),
-
-		actions.NewInitializeAction(),
-	}
-
-	for _, a := range acs {
-		rlog.V(2).Info("Executing " + a.Name())
-		a.InjectClient(r.Client)
-		a.InjectLogger(rlog.WithName(a.Name()))
-		a.InjectRecorder(r.Recorder)
-
-		if a.CanHandle(ctx, target) {
-			rlog.V(1).Info("Executing " + a.Name())
-			result := a.Handle(ctx, target)
-			if result != nil {
-				return result.Result, result.Err
-			}
-		}
-	}
-	return reconcile.Result{}, nil
-}
-
 // SetupWithManager sets up the controller with the Manager.
-func (r *CTlogReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func SetupWithManager(r reconcile.Reconciler, mgr ctrl.Manager) error {
 	// Filter out with the pause annotation.
 	pause, err := olpredicate.NewPause(annotations.PausedReconciliation)
 	if err != nil {

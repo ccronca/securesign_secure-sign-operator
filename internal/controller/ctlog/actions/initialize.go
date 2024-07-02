@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewInitializeAction() action.Action[rhtasv1alpha1.CTlog] {
+func NewInitializeAction() action.Action[*rhtasv1alpha1.CTlog] {
 	return &initializeAction{}
 }
 
@@ -48,10 +48,5 @@ func (i initializeAction) Handle(ctx context.Context, instance *rhtasv1alpha1.CT
 		})
 		return i.StatusUpdate(ctx, instance)
 	}
-	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-		Type:   constants.Ready,
-		Status: metav1.ConditionTrue,
-		Reason: constants.Ready,
-	})
-	return i.StatusUpdate(ctx, instance)
+	return i.Continue()
 }
