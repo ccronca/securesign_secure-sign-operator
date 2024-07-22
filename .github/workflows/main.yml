@@ -12,6 +12,7 @@ env:
   IMG: ttl.sh/securesign/secure-sign-operator-${{github.run_number}}:1h
   BUNDLE_IMG: ttl.sh/securesign/bundle-secure-sign-${{github.run_number}}:1h
   CATALOG_IMG: ttl.sh/securesign/catalog-${{github.run_number}}:1h
+  CONTAINER_TOOL: podman
 
 jobs:
   build-operator:
@@ -19,21 +20,12 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
 
       - name: Replace images
         run: make dev-images && cat internal/controller/constants/images.go
@@ -41,12 +33,21 @@ jobs:
       - name: Build operator container
         run: make docker-build docker-push
 
+      - name: Save container image
+        run: podman save -o /tmp/operator-oci.tar --format oci-archive $IMG
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-image
+          path: /tmp/operator-oci.tar
+
   build-bundle:
     name: Build-bundle-image
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Replace images
         run: make dev-images && cat internal/controller/constants/images.go
@@ -54,21 +55,40 @@ jobs:
       - name: Build operator bundle
         run: make bundle bundle-build bundle-push
 
+      - name: Save container image
+        run: podman save -o /tmp/bundle-oci.tar --format oci-archive $BUNDLE_IMG
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-image
+          path: /tmp/bundle-oci.tar
+
   build-fbc:
     name: Build-fbc
     runs-on: ubuntu-20.04
     needs: build-bundle
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Log in to registry.redhat.io
-        uses: redhat-actions/podman-login@9184318aae1ee5034fbfbacc0388acf12669171f # v1
+        uses: redhat-actions/podman-login@v1
         with:
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
           registry: registry.redhat.io
           auth_file_path: /tmp/config.json
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-image"
+          merge-multiple: true
+          path: /tmp
+
+      - name: Load images
+        run: podman load -i /tmp/bundle-oci.tar
 
       - name: Install OPM
         run: |
@@ -76,7 +96,7 @@ jobs:
           echo "OPM=${{ github.workspace }}/bin/opm" >> $GITHUB_ENV
 
       - name: Checkout FBC source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: "securesign/fbc"
           path: fbc
@@ -96,8 +116,17 @@ jobs:
           cat v4.14/graph.json
           ${{ env.OPM }} alpha render-template basic v4.14/graph.json > v4.14/catalog/rhtas-operator/catalog.json
           ${{ env.OPM }} validate v4.14/catalog/rhtas-operator
-          docker build v4.14 -f v4.14/catalog.Dockerfile -t $CATALOG_IMG
-          docker push $CATALOG_IMG
+          podman build v4.14 -f v4.14/catalog.Dockerfile -t $CATALOG_IMG
+          podman push $CATALOG_IMG
+
+      - name: Save container image
+        run: podman save -o /tmp/catalog-oci.tar --format oci-archive $CATALOG_IMG
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-image
+          path: /tmp/catalog-oci.tar
 
   test-kind:
     name: Test kind deployment
@@ -105,29 +134,30 @@ jobs:
     needs: build-operator
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go- 
-
       - name: Log in to registry.redhat.io
-        uses: redhat-actions/podman-login@9184318aae1ee5034fbfbacc0388acf12669171f # v1
+        uses: redhat-actions/podman-login@v1
         with:
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
           registry: registry.redhat.io
           auth_file_path: /tmp/config.json
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-image"
+          merge-multiple: true
+          path: /tmp
+
+      - name: Load images
+        run: podman load -i /tmp/operator-oci.tar
 
       - name: Install Cluster
         uses: container-tools/kind-action@v2.0.1
@@ -233,32 +263,33 @@ jobs:
         with:
           tool-cache: true
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Log in to registry.redhat.io
-        uses: redhat-actions/podman-login@9184318aae1ee5034fbfbacc0388acf12669171f # v1
+        uses: redhat-actions/podman-login@v1
         with:
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
           registry: registry.redhat.io
           auth_file_path: /tmp/config.json
 
-      - name: Image prune
-        run: docker image prune -af
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-image"
+          merge-multiple: true
+          path: /tmp
+
+      - name: Load images
+        run: |
+          podman load -i /tmp/operator-oci.tar
+          podman load -i /tmp/bundle-oci.tar
+          podman load -i /tmp/catalog-oci.tar
 
       - name: Install Cluster
         uses: container-tools/kind-action@v2.0.1
@@ -353,21 +384,12 @@ jobs:
       OIDC_ISSUER_URL: ${{ secrets.testing_keycloak }}
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
 
       - name: Install eksctl
         run: |
@@ -395,7 +417,7 @@ jobs:
           kubectl patch storageclass gp2 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
       - name: Log in to registry.redhat.io
-        uses: redhat-actions/podman-login@9184318aae1ee5034fbfbacc0388acf12669171f # v1
+        uses: redhat-actions/podman-login@v1
         with:
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
