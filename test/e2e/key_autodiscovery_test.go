@@ -4,17 +4,20 @@ package e2e
 
 import (
 	"context"
-	"time"
 
-	"github.com/securesign/operator/internal/controller/common/utils"
+	"k8s.io/utils/ptr"
+
+	"github.com/securesign/operator/test/e2e/support/tas"
+	"github.com/securesign/operator/test/e2e/support/tas/ctlog"
+	"github.com/securesign/operator/test/e2e/support/tas/fulcio"
+	"github.com/securesign/operator/test/e2e/support/tas/rekor"
+	"github.com/securesign/operator/test/e2e/support/tas/tuf"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/securesign/operator/api/v1alpha1"
 	"github.com/securesign/operator/internal/controller/common/utils/kubernetes"
 	"github.com/securesign/operator/test/e2e/support"
-	"github.com/securesign/operator/test/e2e/support/tas"
-	clients "github.com/securesign/operator/test/e2e/support/tas/cli"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -25,7 +28,7 @@ var _ = Describe("Securesign key autodiscovery test", Ordered, func() {
 
 	var targetImageName string
 	var namespace *v1.Namespace
-	var securesign *v1alpha1.Securesign
+	var s *v1alpha1.Securesign
 
 	AfterEach(func() {
 		if CurrentSpecReport().Failed() && support.IsCIEnvironment() {
@@ -39,7 +42,7 @@ var _ = Describe("Securesign key autodiscovery test", Ordered, func() {
 			_ = cli.Delete(ctx, namespace)
 		})
 
-		securesign = &v1alpha1.Securesign{
+		s = &v1alpha1.Securesign{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: namespace.Name,
 				Name:      "test",
@@ -118,7 +121,10 @@ var _ = Describe("Securesign key autodiscovery test", Ordered, func() {
 					},
 				},
 				Trillian: v1alpha1.TrillianSpec{Db: v1alpha1.TrillianDB{
-					Create: utils.Pointer(true),
+					Create: ptr.To(true),
+					Pvc: v1alpha1.Pvc{
+						Retain: ptr.To(false),
+					},
 				}},
 			},
 		}
@@ -130,43 +136,39 @@ var _ = Describe("Securesign key autodiscovery test", Ordered, func() {
 
 	Describe("Install with provided certificates", func() {
 		BeforeAll(func() {
-			Expect(cli.Create(ctx, initCTSecret(namespace.Name, "my-ctlog-secret"))).To(Succeed())
-			Expect(cli.Create(ctx, initFulcioSecret(namespace.Name, "my-fulcio-secret"))).To(Succeed())
-			Expect(cli.Create(ctx, initRekorSecret(namespace.Name, "my-rekor-secret"))).To(Succeed())
-			Expect(cli.Create(ctx, securesign)).To(Succeed())
+			Expect(cli.Create(ctx, ctlog.CreateSecret(namespace.Name, "my-ctlog-secret"))).To(Succeed())
+			Expect(cli.Create(ctx, fulcio.CreateSecret(namespace.Name, "my-fulcio-secret"))).To(Succeed())
+			Expect(cli.Create(ctx, rekor.CreateSecret(namespace.Name, "my-rekor-secret"))).To(Succeed())
+			Expect(cli.Create(ctx, s)).To(Succeed())
 		})
 
 		It("All components are running", func() {
-			tas.VerifySecuresign(ctx, cli, namespace.Name, securesign.Name)
-			tas.VerifyRekor(ctx, cli, namespace.Name, securesign.Name)
-			tas.VerifyFulcio(ctx, cli, namespace.Name, securesign.Name)
-			tas.VerifyCTLog(ctx, cli, namespace.Name, securesign.Name)
-			tas.VerifyTrillian(ctx, cli, namespace.Name, securesign.Name, true)
-			tas.VerifyTuf(ctx, cli, namespace.Name, securesign.Name)
+			tas.VerifyAllComponents(ctx, cli, s, true)
 		})
 
 		It("Verify TUF keys", func() {
-			tuf := tas.GetTuf(ctx, cli, namespace.Name, securesign.Name)()
-			Expect(tuf.Status.Keys).To(HaveEach(WithTransform(func(k v1alpha1.TufKey) string { return k.SecretRef.Name }, Not(BeEmpty()))))
+			t := tuf.Get(ctx, cli, namespace.Name, s.Name)()
+			Expect(t).ToNot(BeNil())
+			Expect(t.Status.Keys).To(HaveEach(WithTransform(func(k v1alpha1.TufKey) string { return k.SecretRef.Name }, Not(BeEmpty()))))
 			var (
 				expected, actual []byte
 				err              error
 			)
-			for _, k := range tuf.Status.Keys {
+			for _, k := range t.Status.Keys {
 				actual, err = kubernetes.GetSecretData(cli, namespace.Name, k.SecretRef)
 				Expect(err).To(Not(HaveOccurred()))
 
 				switch k.Name {
 				case "fulcio_v1.crt.pem":
-					expected, err = kubernetes.GetSecretData(cli, namespace.Name, securesign.Spec.Fulcio.Certificate.CARef)
+					expected, err = kubernetes.GetSecretData(cli, namespace.Name, s.Spec.Fulcio.Certificate.CARef)
 					Expect(err).To(Not(HaveOccurred()))
 				case "rekor.pub":
-					expectedKeyRef := securesign.Spec.Rekor.Signer.KeyRef.DeepCopy()
+					expectedKeyRef := s.Spec.Rekor.Signer.KeyRef.DeepCopy()
 					expectedKeyRef.Key = "public"
 					expected, err = kubernetes.GetSecretData(cli, namespace.Name, expectedKeyRef)
 					Expect(err).To(Not(HaveOccurred()))
 				case "ctfe.pub":
-					expectedKeyRef := securesign.Spec.Ctlog.PrivateKeyRef.DeepCopy()
+					expectedKeyRef := s.Spec.Ctlog.PrivateKeyRef.DeepCopy()
 					expectedKeyRef.Key = "public"
 					expected, err = kubernetes.GetSecretData(cli, namespace.Name, expectedKeyRef)
 					Expect(err).To(Not(HaveOccurred()))
@@ -176,41 +178,7 @@ var _ = Describe("Securesign key autodiscovery test", Ordered, func() {
 		})
 
 		It("Use cosign cli", func() {
-			fulcio := tas.GetFulcio(ctx, cli, namespace.Name, securesign.Name)()
-			Expect(fulcio).ToNot(BeNil())
-
-			rekor := tas.GetRekor(ctx, cli, namespace.Name, securesign.Name)()
-			Expect(rekor).ToNot(BeNil())
-
-			tuf := tas.GetTuf(ctx, cli, namespace.Name, securesign.Name)()
-			Expect(tuf).ToNot(BeNil())
-
-			oidcToken, err := support.OidcToken(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oidcToken).ToNot(BeEmpty())
-
-			// sleep for a while to be sure everything has settled down
-			time.Sleep(time.Duration(10) * time.Second)
-
-			Expect(clients.Execute("cosign", "initialize", "--mirror="+tuf.Status.Url, "--root="+tuf.Status.Url+"/root.json")).To(Succeed())
-
-			Expect(clients.Execute(
-				"cosign", "sign", "-y",
-				"--fulcio-url="+fulcio.Status.Url,
-				"--rekor-url="+rekor.Status.Url,
-				"--oidc-issuer="+support.OidcIssuerUrl(),
-				"--oidc-client-id="+support.OidcClientID(),
-				"--identity-token="+oidcToken,
-				targetImageName,
-			)).To(Succeed())
-
-			Expect(clients.Execute(
-				"cosign", "verify",
-				"--rekor-url="+rekor.Status.Url,
-				"--certificate-identity-regexp", ".*@redhat",
-				"--certificate-oidc-issuer-regexp", ".*keycloak.*",
-				targetImageName,
-			)).To(Succeed())
+			tas.VerifyByCosign(ctx, cli, s, targetImageName)
 		})
 	})
 })

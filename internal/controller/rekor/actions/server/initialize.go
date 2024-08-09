@@ -36,7 +36,7 @@ func (i initializeAction) Handle(ctx context.Context, instance *rhtasv1alpha1.Re
 		err error
 	)
 	labels := constants.LabelsForComponent(actions.ServerComponentName, instance.Name)
-	ok, err = commonUtils.DeploymentIsRunning(ctx, i.Client, instance.Namespace, labels)
+	ok, err = commonUtils.DeploymentIsRunning(ctx, i.Client, instance.Namespace, labels, i.Logger)
 	if err != nil {
 		return i.Failed(err)
 	}

@@ -219,7 +219,9 @@ var _ = Describe("Rekor controller", func() {
 			By("Move to Ready phase")
 			for _, d := range deployments.Items {
 				d.Status.Conditions = []appsv1.DeploymentCondition{
-					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentAvailable, Reason: constants.Ready}}
+					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentAvailable, Reason: constants.Ready},
+					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentProgressing, Reason: "NewReplicaSetAvailable"},
+				}
 				Expect(k8sClient.Status().Update(ctx, &d)).Should(Succeed())
 			}
 

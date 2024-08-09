@@ -16,7 +16,7 @@ import (
 	v12 "k8s.io/api/apps/v1"
 	v13 "k8s.io/api/batch/v1"
 
-	"github.com/docker/docker/api/types"
+	dockerTypes "github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
@@ -68,7 +68,7 @@ func PrepareImage(ctx context.Context) string {
 	Expect(err).ToNot(HaveOccurred())
 
 	var pull io.ReadCloser
-	pull, err = dockerCli.ImagePull(ctx, fromImage, types.ImagePullOptions{})
+	pull, err = dockerCli.ImagePull(ctx, fromImage, dockerTypes.ImagePullOptions{})
 	Expect(err).ToNot(HaveOccurred())
 	_, err = io.Copy(core.GinkgoWriter, pull)
 	Expect(err).ToNot(HaveOccurred())
@@ -76,7 +76,7 @@ func PrepareImage(ctx context.Context) string {
 
 	Expect(dockerCli.ImageTag(ctx, fromImage, targetImageName)).To(Succeed())
 	var push io.ReadCloser
-	push, err = dockerCli.ImagePush(ctx, targetImageName, types.ImagePushOptions{RegistryAuth: types.RegistryAuthFromSpec})
+	push, err = dockerCli.ImagePush(ctx, targetImageName, dockerTypes.ImagePushOptions{RegistryAuth: dockerTypes.RegistryAuthFromSpec})
 	Expect(err).ToNot(HaveOccurred())
 	_, err = io.Copy(core.GinkgoWriter, push)
 	Expect(err).ToNot(HaveOccurred())
@@ -100,18 +100,19 @@ func DumpNamespace(ctx context.Context, cli client.Client, ns string) {
 	k8s := map[string]logTarget{}
 
 	toDump := map[string]client.ObjectList{
-		"securesign.yaml": &v1alpha1.SecuresignList{},
-		"fulcio.yaml":     &v1alpha1.FulcioList{},
-		"rekor.yaml":      &v1alpha1.RekorList{},
-		"tuf.yaml":        &v1alpha1.TufList{},
-		"ctlog.yaml":      &v1alpha1.CTlogList{},
-		"trillian.yaml":   &v1alpha1.TrillianList{},
-		"pod.yaml":        &v1.PodList{},
-		"configmap.yaml":  &v1.ConfigMapList{},
-		"deployment.yaml": &v12.DeploymentList{},
-		"job.yaml":        &v13.JobList{},
-		"cronjob.yaml":    &v13.CronJobList{},
-		"event.yaml":      &v1.EventList{},
+		"securesign.yaml":  &v1alpha1.SecuresignList{},
+		"fulcio.yaml":      &v1alpha1.FulcioList{},
+		"rekor.yaml":       &v1alpha1.RekorList{},
+		"tuf.yaml":         &v1alpha1.TufList{},
+		"ctlog.yaml":       &v1alpha1.CTlogList{},
+		"trillian.yaml":    &v1alpha1.TrillianList{},
+		"pod.yaml":         &v1.PodList{},
+		"configmap.yaml":   &v1.ConfigMapList{},
+		"deployment.yaml":  &v12.DeploymentList{},
+		"replica_set.yaml": &v12.ReplicaSetList{},
+		"job.yaml":         &v13.JobList{},
+		"cronjob.yaml":     &v13.CronJobList{},
+		"event.yaml":       &v1.EventList{},
 	}
 
 	core.GinkgoWriter.Println("----------------------- Dumping namespace " + ns + " -----------------------")

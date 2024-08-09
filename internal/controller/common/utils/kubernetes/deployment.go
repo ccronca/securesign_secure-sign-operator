@@ -2,13 +2,15 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func DeploymentIsRunning(ctx context.Context, cli client.Client, namespace string, labels map[string]string) (bool, error) {
+func DeploymentIsRunning(ctx context.Context, cli client.Client, namespace string, labels map[string]string, logs ...logr.Logger) (bool, error) {
 	var err error
 	list := &v1.DeploymentList{}
 
@@ -16,8 +18,16 @@ func DeploymentIsRunning(ctx context.Context, cli client.Client, namespace strin
 		return false, err
 	}
 	for _, d := range list.Items {
+		if len(logs) > 0 {
+			logs[0].Info(fmt.Sprintf("IsRunning: %v", d))
+		}
+
 		c := getDeploymentCondition(d.Status, v1.DeploymentAvailable)
 		if c == nil || c.Status == corev1.ConditionFalse {
+			return false, nil
+		}
+		c = getDeploymentCondition(d.Status, v1.DeploymentProgressing)
+		if c == nil || c.Status != corev1.ConditionTrue || c.Reason != "NewReplicaSetAvailable" {
 			return false, nil
 		}
 	}
