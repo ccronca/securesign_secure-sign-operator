@@ -50,7 +50,11 @@ func (i createPvcAction) Handle(ctx context.Context, instance *rhtasv1alpha1.Rek
 
 	// PVC does not exist, create a new one
 	i.Logger.V(1).Info("Creating new PVC")
-	pvc := k8sutils.CreatePVC(instance.Namespace, fmt.Sprintf(PvcNameFormat, instance.Name), *instance.Spec.Pvc.Size, instance.Spec.Pvc.StorageClass, constants.LabelsFor(actions.ServerComponentName, actions.ServerDeploymentName, instance.Name))
+	pvc := k8sutils.CreatePVC(instance.Namespace, fmt.Sprintf(PvcNameFormat, instance.Name), *instance.Spec.Pvc.Size, instance.Spec.Pvc.StorageClass,
+		[]v1.PersistentVolumeAccessMode{
+			"ReadWriteOnce",
+		},
+		constants.LabelsFor(actions.ServerComponentName, actions.ServerDeploymentName, instance.Name))
 	if !utils.OptionalBool(instance.Spec.Pvc.Retain) {
 		if err = controllerutil.SetControllerReference(instance, pvc, i.Client.Scheme()); err != nil {
 			return i.Failed(fmt.Errorf("could not set controller reference for PVC: %w", err))

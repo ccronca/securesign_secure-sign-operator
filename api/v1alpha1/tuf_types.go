@@ -20,6 +20,9 @@ type TufSpec struct {
 	//+kubebuilder:default:={{name: rekor.pub},{name: ctfe.pub},{name: fulcio_v1.crt.pem}}
 	//+kubebuilder:validation:MinItems:=1
 	Keys []TufKey `json:"keys,omitempty"`
+	// PVC configuration
+	//+kubebuilder:default:={size: "5Gi", retain: true}
+	Pvc Pvc `json:"pvc,omitempty"`
 }
 
 type TufKey struct {
@@ -36,8 +39,9 @@ type TufKey struct {
 
 // TufStatus defines the observed state of Tuf
 type TufStatus struct {
-	Keys []TufKey `json:"keys,omitempty"`
-	Url  string   `json:"url,omitempty"`
+	Keys    []TufKey `json:"keys,omitempty"`
+	PvcName string   `json:"pvcName,omitempty"`
+	Url     string   `json:"url,omitempty"`
 	// +listType=map
 	// +listMapKey=type
 	// +patchStrategy=merge

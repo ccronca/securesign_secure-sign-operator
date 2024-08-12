@@ -110,6 +110,43 @@ spec:
                 maximum: 65535
                 minimum: 1
                 type: integer
+              pvc:
+                default:
+                  retain: true
+                  size: 1Gi
+                description: PVC configuration
+                properties:
+                  name:
+                    description: Name of the PVC
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                  retain:
+                    default: true
+                    description: Retain policy for the PVC
+                    type: boolean
+                    x-kubernetes-validations:
+                    - message: Field is immutable
+                      rule: (self == oldSelf)
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 5Gi
+                    description: |-
+                      The requested size of the persistent volume attached to Pod.
+                      The format of this field matches that defined by kubernetes/apimachinery.
+                      See https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity for more info on the format of this field.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClass:
+                    description: The name of the StorageClass to claim a PersistentVolume
+                      from.
+                    type: string
+                required:
+                - retain
+                type: object
             type: object
           status:
             description: TufStatus defines the observed state of Tuf
@@ -218,6 +255,8 @@ spec:
                   - name
                   type: object
                 type: array
+              pvcName:
+                type: string
               url:
                 type: string
             type: object

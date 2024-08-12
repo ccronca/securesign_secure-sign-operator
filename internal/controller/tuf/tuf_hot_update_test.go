@@ -26,6 +26,7 @@ import (
 	"github.com/securesign/operator/internal/controller/constants"
 	actions2 "github.com/securesign/operator/internal/controller/ctlog/actions"
 	"github.com/securesign/operator/internal/controller/tuf/actions"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -148,6 +149,19 @@ var _ = Describe("TUF update test", func() {
 			_ = k8sClient.Create(ctx, kubernetes.CreateSecret("ctlog-test", typeNamespaceName.Namespace, map[string][]byte{
 				"public": []byte("secret"),
 			}, secretLabels))
+
+			By("Waiting until Tuf init job is created")
+			initJob := &batchv1.Job{}
+			Eventually(func() error {
+				e := k8sClient.Get(ctx, types.NamespacedName{Name: actions.InitJobName, Namespace: namespace.Name}, initJob)
+				return e
+			}).Should(Not(HaveOccurred()))
+
+			By("Move to Job to completed")
+			// Workaround to succeed condition for Ready phase
+			initJob.Status.Conditions = []batchv1.JobCondition{
+				{Status: corev1.ConditionTrue, Type: batchv1.JobComplete, Reason: constants.Ready}}
+			Expect(k8sClient.Status().Update(ctx, initJob)).Should(Succeed())
 
 			By("Waiting until Tuf instance is Initialization")
 			Eventually(func(g Gomega) string {
