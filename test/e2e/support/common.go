@@ -3,7 +3,6 @@ package support
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,13 +10,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	v12 "k8s.io/api/apps/v1"
 	v13 "k8s.io/api/batch/v1"
 
-	dockerTypes "github.com/docker/docker/api/types"
-	docker "github.com/docker/docker/client"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/ginkgo/v2/dsl/core"
@@ -30,8 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-const fromImage = "alpine:latest"
 
 func IsCIEnvironment() bool {
 	if val, present := os.LookupEnv("CI"); present {
@@ -62,27 +59,27 @@ func PrepareImage(ctx context.Context) string {
 	if v, ok := os.LookupEnv("TEST_IMAGE"); ok {
 		return v
 	}
+
+	image, err := random.Image(1024, 8)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	targetImageName := fmt.Sprintf("ttl.sh/%s:15m", uuid.New().String())
+	ref, err := name.ParseReference(targetImageName)
+	if err != nil {
+		panic(err.Error())
+	}
 
-	dockerCli, err := docker.NewClientWithOpts(docker.FromEnv, docker.WithAPIVersionNegotiation())
-	Expect(err).ToNot(HaveOccurred())
+	pusher, err := remote.NewPusher()
+	if err != nil {
+		panic(err.Error())
+	}
 
-	var pull io.ReadCloser
-	pull, err = dockerCli.ImagePull(ctx, fromImage, dockerTypes.ImagePullOptions{})
-	Expect(err).ToNot(HaveOccurred())
-	_, err = io.Copy(core.GinkgoWriter, pull)
-	Expect(err).ToNot(HaveOccurred())
-	defer func() { _ = pull.Close() }()
-
-	Expect(dockerCli.ImageTag(ctx, fromImage, targetImageName)).To(Succeed())
-	var push io.ReadCloser
-	push, err = dockerCli.ImagePush(ctx, targetImageName, dockerTypes.ImagePushOptions{RegistryAuth: dockerTypes.RegistryAuthFromSpec})
-	Expect(err).ToNot(HaveOccurred())
-	_, err = io.Copy(core.GinkgoWriter, push)
-	Expect(err).ToNot(HaveOccurred())
-	defer func() { _ = push.Close() }()
-	// wait for a while to be sure that the image landed in the registry
-	time.Sleep(10 * time.Second)
+	err = pusher.Push(ctx, ref, image)
+	if err != nil {
+		panic(err.Error())
+	}
 	return targetImageName
 }
 
