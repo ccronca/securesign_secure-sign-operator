@@ -20,6 +20,8 @@ import (
 	"context"
 	"time"
 
+	k8sTest "github.com/securesign/operator/internal/testing/kubernetes"
+
 	"github.com/securesign/operator/internal/controller/common/utils"
 
 	"github.com/securesign/operator/api/v1alpha1"
@@ -162,15 +164,11 @@ var _ = Describe("Trillian controller", func() {
 				return meta.FindStatusCondition(found.Status.Conditions, constants.Ready).Reason
 			}).Should(Equal(constants.Initialize))
 
+			By("Move to Ready phase")
 			deployments := &appsv1.DeploymentList{}
 			Expect(k8sClient.List(ctx, deployments, runtimeClient.InNamespace(Namespace))).To(Succeed())
-			By("Move to Ready phase")
 			for _, d := range deployments.Items {
-				d.Status.Conditions = []appsv1.DeploymentCondition{
-					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentAvailable, Reason: constants.Ready},
-					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentProgressing, Reason: "NewReplicaSetAvailable"},
-				}
-				Expect(k8sClient.Status().Update(ctx, &d)).Should(Succeed())
+				Expect(k8sTest.SetDeploymentToReady(ctx, k8sClient, &d)).To(Succeed())
 			}
 			// Workaround to succeed condition for Ready phase
 

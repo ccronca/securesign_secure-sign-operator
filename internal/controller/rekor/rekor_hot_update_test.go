@@ -23,6 +23,9 @@ import (
 	"net/http"
 	"time"
 
+	k8sTest "github.com/securesign/operator/internal/testing/kubernetes"
+	"k8s.io/apimachinery/pkg/api/equality"
+
 	"github.com/securesign/operator/internal/controller/rekor/actions/server"
 	httpmock "github.com/securesign/operator/internal/testing/http"
 
@@ -34,7 +37,6 @@ import (
 	"github.com/securesign/operator/internal/controller/rekor/actions"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 
@@ -162,15 +164,11 @@ var _ = Describe("Rekor hot update test", func() {
 				return meta.FindStatusCondition(found.Status.Conditions, constants.Ready).Reason
 			}).Should(Equal(constants.Initialize))
 
+			By("Move to Ready phase")
 			deployments := &appsv1.DeploymentList{}
 			Expect(k8sClient.List(ctx, deployments, runtimeClient.InNamespace(Namespace))).To(Succeed())
-			By("Move to Ready phase")
 			for _, d := range deployments.Items {
-				d.Status.Conditions = []appsv1.DeploymentCondition{
-					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentAvailable, Reason: constants.Ready},
-					{Status: corev1.ConditionTrue, Type: appsv1.DeploymentProgressing, Reason: "NewReplicaSetAvailable"},
-				}
-				Expect(k8sClient.Status().Update(ctx, &d)).Should(Succeed())
+				Expect(k8sTest.SetDeploymentToReady(ctx, k8sClient, &d)).To(Succeed())
 			}
 			// Workaround to succeed condition for Ready phase
 
@@ -218,6 +216,20 @@ var _ = Describe("Rekor hot update test", func() {
 				},
 			})
 
+			By("Rekor deployment is updated")
+			Eventually(func(g Gomega) bool {
+				updated := &appsv1.Deployment{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: actions.ServerDeploymentName, Namespace: Namespace}, updated)).To(Succeed())
+				return equality.Semantic.DeepDerivative(deployment.Spec.Template.Spec.Volumes, updated.Spec.Template.Spec.Volumes)
+			}).Should(BeFalse())
+
+			By("Move to Ready phase")
+			deployments = &appsv1.DeploymentList{}
+			Expect(k8sClient.List(ctx, deployments, runtimeClient.InNamespace(Namespace))).To(Succeed())
+			for _, d := range deployments.Items {
+				Expect(k8sTest.SetDeploymentToReady(ctx, k8sClient, &d)).To(Succeed())
+			}
+
 			By("Secret key is resolved")
 			Eventually(func(g Gomega) *v1alpha1.SecretKeySelector {
 				g.Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
@@ -227,13 +239,6 @@ var _ = Describe("Rekor hot update test", func() {
 				g.Expect(k8sClient.Get(ctx, typeNamespaceName, found)).Should(Succeed())
 				return found.Status.Signer.KeyRef.Name
 			}).Should(Equal("key-secret"))
-
-			By("Rekor deployment is updated")
-			Eventually(func(g Gomega) bool {
-				updated := &appsv1.Deployment{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: actions.ServerDeploymentName, Namespace: Namespace}, updated)).To(Succeed())
-				return equality.Semantic.DeepDerivative(deployment.Spec.Template.Spec.Volumes, updated.Spec.Template.Spec.Volumes)
-			}).Should(BeFalse())
 
 			By("New secret with public key created")
 			Eventually(func(g Gomega) {
